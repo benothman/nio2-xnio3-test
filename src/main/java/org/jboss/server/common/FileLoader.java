@@ -30,8 +30,8 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.jboss.server.xnio3.common.XnioUtils;
 
 /**
  * {@code FileLoader}
@@ -44,6 +44,7 @@ public final class FileLoader {
 
 	private static long fileLength;
 	private static ByteBuffer data[];
+	private static AtomicBoolean intialized = new AtomicBoolean();
 
 	/**
 	 * Create a new instance of {@code FileLoader}
@@ -81,29 +82,30 @@ public final class FileLoader {
 	 * @throws IOException
 	 */
 	private static synchronized void init() throws IOException {
-
+		if(intialized.getAndSet(true)) {
+			return;
+		}
+				
 		File file = new File("data" + File.separatorChar + "file.txt");
 		try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
 			FileChannel fileChannel = raf.getChannel();
-
-			fileLength = fileChannel.size() + XnioUtils.CRLF.getBytes().length;
-			double tmp = (double) fileLength / XnioUtils.WRITE_BUFFER_SIZE;
+			fileLength = fileChannel.size() + Constants.CRLF.length();
+			double tmp = (double) fileLength / Constants.DEFAULT_BUFFER_SIZE;
 			int length = (int) Math.ceil(tmp);
 			data = new ByteBuffer[length];
 
 			for (int i = 0; i < data.length - 1; i++) {
-				data[i] = ByteBuffer.allocateDirect(XnioUtils.WRITE_BUFFER_SIZE);
+				data[i] = ByteBuffer.allocateDirect(Constants.DEFAULT_BUFFER_SIZE);
 			}
 
-			int size = (int) (fileLength % XnioUtils.WRITE_BUFFER_SIZE);
+			int size = (int) (fileLength % Constants.DEFAULT_BUFFER_SIZE);
 			data[data.length - 1] = ByteBuffer.allocateDirect(size);
 			// Read the whole file in one pass
 			fileChannel.read(data);
 		}
 		// Put the <i>CRLF</i> chars at the end of the last byte buffer to mark
 		// the end of data
-		data[data.length - 1].put(XnioUtils.CRLF.getBytes());
-
+		data[data.length - 1].put(Constants.CRLF.getBytes());
 	}
 
 	/**

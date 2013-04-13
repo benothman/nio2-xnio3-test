@@ -28,7 +28,6 @@ package org.jboss.server.common;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * {@code AbstractServer}
@@ -42,9 +41,6 @@ public abstract class AbstractServer implements Runnable {
 	/**
 	 *
 	 */
-	public static final String CRLF = "\r\n";
-	public static final long TIMEOUT = 20;
-	public static final TimeUnit TIME_UNIT = TimeUnit.SECONDS;
 	protected int port;
 	protected boolean async = false;
 	protected ExecutorService executor = Executors.newFixedThreadPool(512);

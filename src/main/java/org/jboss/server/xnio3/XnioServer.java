@@ -85,12 +85,12 @@ public abstract class XnioServer extends AbstractServer {
 			OptionMap optionMap = OptionMap.create(Options.WORKER_WRITE_THREADS, cores,
 					Options.WORKER_READ_THREADS, cores);
 			// Create the worker
-			final XnioWorker worker = xnio.createWorker(optionMap);
+			final XnioWorker worker = xnio.createWorker(null,optionMap);
 			final SocketAddress address = new InetSocketAddress(this.port);
 			final ChannelListener<? super AcceptingChannel<ConnectedStreamChannel>> acceptListener = ChannelListeners
 					.openListenerAdapter(getAcceptListener());
 			// configure the number of worker task max threads
-			worker.setOption(Options.WORKER_TASK_MAX_THREADS, 510);
+			worker.setOption(Options.WORKER_TASK_MAX_THREADS, 1000);
 
 			final AcceptingChannel<? extends ConnectedStreamChannel> server = worker
 					.createStreamServer(address, acceptListener,
@@ -102,6 +102,9 @@ public abstract class XnioServer extends AbstractServer {
 		}
 	}
 
+	/**
+	 * @return the channel listener
+	 */
 	public abstract ChannelListener<Channel> getAcceptListener();
 
 	/**
@@ -117,7 +120,6 @@ public abstract class XnioServer extends AbstractServer {
 		buffer.flip();
 		byte bytes[] = new byte[nBytes];
 		buffer.get(bytes);
-		System.out.println("[" + sessionId + "] " + new String(bytes).trim());
 		String response = "jSessionId: " + sessionId + XnioUtils.CRLF;
 		// write initialization response to client
 		buffer.clear();

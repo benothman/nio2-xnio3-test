@@ -70,7 +70,7 @@ public class AsyncServer extends XnioServer {
 		 */
 		@Override
 		public void handleEvent(StreamChannel channel) {
-			logger.infof("Closing remote connection for session: [%s] (counter = [%d]) ",
+			logger.infov("Closing remote connection for session: {0} (counter = {1}) ",
 					this.sessionId, counter.decrementAndGet());
 		}
 	}
@@ -104,9 +104,9 @@ public class AsyncServer extends XnioServer {
 					readListener.setSessionId(sessionId);
 					streamChannel.getReadSetter().set(readListener);
 					// Setup the close listener
-					CloseChannelListener closeListener = new CloseChannelListener();
-					closeListener.sessionId = sessionId;
-					streamChannel.getCloseSetter().set(closeListener);
+					//CloseChannelListener closeListener = new CloseChannelListener();
+					//closeListener.sessionId = sessionId;
+					//streamChannel.getCloseSetter().set(closeListener);
 					// Resume reads
 					streamChannel.resumeReads();
 				} catch (IOException e) {

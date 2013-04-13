@@ -27,6 +27,7 @@ package org.jboss.server.xnio3.async;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 
 import org.jboss.server.common.FileLoader;
 import org.xnio.ChannelListener;
@@ -40,19 +41,19 @@ import org.xnio.channels.StreamChannel;
  * @author <a href="mailto:nbenothm@redhat.com">Nabil Benothman</a>
  */
 public class ReadChannelListener implements ChannelListener<StreamChannel> {
-
-	private String sessionId;
-	private ByteBuffer readBuffer;
-	private ByteBuffer writeBuffers[];
-	private long fileLength;
-
+	
+	private String		sessionId;
+	private ByteBuffer	readBuffer;
+	private ByteBuffer	writeBuffers[];
+	private long		fileLength;
+	
 	/**
 	 * Create a new instance of {@code ReadChannelListener}
 	 */
 	public ReadChannelListener() {
 		this.init();
 	}
-
+	
 	/*
 	 * (non-Javadoc)
 	 * 
@@ -66,60 +67,67 @@ public class ReadChannelListener implements ChannelListener<StreamChannel> {
 				channel.close();
 				return;
 			}
-
+			
 			if (nBytes > 0) {
 				readBuffer.flip();
 				byte bytes[] = new byte[nBytes];
-				readBuffer.get(bytes);
-				readBuffer.clear();
+				readBuffer.get(bytes).clear();
 				writeResponse(channel);
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
-
+	
 	/**
 	 * 
 	 * @param channel
 	 * @throws Exception
 	 */
 	void writeResponse(StreamChannel channel) throws Exception {
-		try {
-			// Write the file content to the channel
-			write(channel, writeBuffers, fileLength);
-			// write(channel, writeBuffer);
-		} catch (Exception exp) {
-			exp.printStackTrace();
+		// Write the file content to the channel
+		write(channel, writeBuffers, fileLength);
+	}
+	
+	/**
+	 * 
+	 * @param buffers
+	 */
+	public void flipAll(ByteBuffer[] buffers) {
+		for (ByteBuffer bb : buffers) {
+			if (bb.position() > 0) {
+				bb.flip();
+			}
 		}
 	}
-
+	
 	/**
 	 * 
 	 * @param channel
 	 * @param buffers
 	 * @throws Exception
 	 */
-	protected void write(final StreamChannel channel, final ByteBuffer[] buffers, long total)
+	protected void write(final StreamChannel channel, final ByteBuffer[] buffers, final long total)
 			throws Exception {
-
-		for (ByteBuffer bb : buffers) {
-			bb.flip();
-		}
-
+		
+		// Flip all buffers
+		flipAll(buffers);
+		
 		long nw = 0, x = 0;
-
-		while (nw < total) {
+		int offset = 0, len = buffers.length;
+		do {
+			offset = (int) (nw / buffers[0].capacity());
 			// Wait until the channel becomes writable again
 			channel.awaitWritable();
-			x = channel.write(buffers);
+			// Write data to client
+			x = channel.write(buffers, offset, len - offset);
 			if (x < 0) {
-				throw new IOException("Channel is closed");
+				throw new ClosedChannelException();
 			}
 			nw += x;
-		}
+		} while (nw < total);
 	}
-
+	
 	/**
 	 * 
 	 * @param channel
@@ -132,7 +140,7 @@ public class ReadChannelListener implements ChannelListener<StreamChannel> {
 		channel.awaitWritable();
 		channel.write(byteBuffer);
 	}
-
+	
 	/**
 	 * Read the file from HD and initialize the write byte buffers array.
 	 */
@@ -141,7 +149,14 @@ public class ReadChannelListener implements ChannelListener<StreamChannel> {
 		this.writeBuffers = FileLoader.cloneData();
 		this.fileLength = FileLoader.getFileLength();
 	}
-
+	
+	/**
+	 * @return the readBuffer
+	 */
+	public ByteBuffer getReadBuffer() {
+		return this.readBuffer;
+	}
+	
 	/**
 	 * Getter for sessionId
 	 * 
@@ -150,7 +165,7 @@ public class ReadChannelListener implements ChannelListener<StreamChannel> {
 	public String getSessionId() {
 		return this.sessionId;
 	}
-
+	
 	/**
 	 * Setter for the sessionId
 	 * 

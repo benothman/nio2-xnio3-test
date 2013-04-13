@@ -29,8 +29,8 @@ import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousSocketChannel;
 
+import org.jboss.server.common.Constants;
 import org.jboss.server.nio2.NioServer;
-import org.jboss.server.nio2.common.Nio2Utils;
 
 /**
  * {@code SyncServer}
@@ -63,7 +63,7 @@ public class SyncServer extends NioServer {
 		// Initialize the session
 		initSession(channel, readBuffer, sessionId);
 		// Fix the channel send buffer size
-		channel.setOption(StandardSocketOptions.SO_SNDBUF, Nio2Utils.SO_SNDBUF);
+		channel.setOption(StandardSocketOptions.SO_SNDBUF, Constants.DEFAULT_SO_SNDBUF);
 		// Create a new client manager
 		Nio2ClientManager manager = new Nio2ClientManager(channel);
 		manager.setSessionId(sessionId);

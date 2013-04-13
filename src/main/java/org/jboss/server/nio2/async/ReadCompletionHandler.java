@@ -25,16 +25,13 @@
  */
 package org.jboss.server.nio2.async;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.CompletionHandler;
-import java.nio.channels.FileChannel;
 
-import org.jboss.server.nio2.common.Nio2Utils;
+import org.jboss.server.common.Constants;
 
 /**
  * {@code ReadCompletionHandler}
@@ -43,14 +40,7 @@ import org.jboss.server.nio2.common.Nio2Utils;
  * 
  * @author <a href="mailto:nbenothm@redhat.com">Nabil Benothman</a>
  */
-class ReadCompletionHandler implements CompletionHandler<Integer, AsynchronousSocketChannel> {
-
-	private String sessionId;
-	// The read buffer
-	private ByteBuffer readBuffer;
-	// An array of byte buffers for write operations
-	private ByteBuffer writeBuffers[];
-	private long fileLength;
+class ReadCompletionHandler implements CompletionHandler<Integer, Object[]> {
 
 	/**
 	 * Create a new instance of {@code ReadCompletionHandler}
@@ -58,9 +48,8 @@ class ReadCompletionHandler implements CompletionHandler<Integer, AsynchronousSo
 	 * @param sessionId
 	 * @param byteBuffer
 	 */
-	public ReadCompletionHandler(String sessionId, ByteBuffer byteBuffer) {
-		this.sessionId = sessionId;
-		this.readBuffer = byteBuffer;
+	public ReadCompletionHandler() {
+		super();
 	}
 
 	/*
@@ -70,26 +59,28 @@ class ReadCompletionHandler implements CompletionHandler<Integer, AsynchronousSo
 	 * java.lang.Object)
 	 */
 	@Override
-	public void completed(Integer nBytes, AsynchronousSocketChannel channel) {
+	public void completed(Integer nBytes, Object[] attachment) {
 		if (nBytes < 0) {
-			failed(new ClosedChannelException(), channel);
+			failed(new ClosedChannelException(), attachment);
 			return;
 		}
 
 		if (nBytes > 0) {
-			readBuffer.flip();
+			ByteBuffer buff = (ByteBuffer) attachment[Constants.READ_BUFFER_POS];
+			buff.flip();
 			byte bytes[] = new byte[nBytes];
-			readBuffer.get(bytes);
-			try {
-				// write response to client
-				writeResponse(channel);
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
+			buff.get(bytes).clear();
+			//System.out.println("ASYNC-NIO.2 --> [" + attachment[Constants.SESSION_ID_POS] + "] "
+			//		+ new String(bytes).trim());
+			// write response to client
+			writeResponse(attachment);
+		} else {
+			AsynchronousSocketChannel channel = (AsynchronousSocketChannel) attachment[Constants.CHANNEL_POS];
+			ByteBuffer bb = (ByteBuffer) attachment[Constants.READ_BUFFER_POS];
+			bb.clear();
+			// Read again from client
+			channel.read(bb, attachment, this);
 		}
-		// Read again with the this CompletionHandler
-		readBuffer.clear();
-		channel.read(readBuffer, Nio2Utils.TIMEOUT, Nio2Utils.TIME_UNIT, channel, this);
 	}
 
 	/*
@@ -99,30 +90,36 @@ class ReadCompletionHandler implements CompletionHandler<Integer, AsynchronousSo
 	 * java.lang.Object)
 	 */
 	@Override
-	public void failed(Throwable exc, AsynchronousSocketChannel channel) {
-		System.out.println("[" + this.sessionId + "] Read Operation failed");
-		exc.printStackTrace();
+	public void failed(Throwable exc, Object[] attachment) {
 		try {
-			System.out.println("[" + this.sessionId + "] Closing remote connection");
+			String sessionId = (String) attachment[Constants.SESSION_ID_POS];
+			System.out.println("[" + sessionId + "] Closing remote connection");
+			AsynchronousSocketChannel channel = (AsynchronousSocketChannel) attachment[Constants.CHANNEL_POS];
 			channel.close();
 		} catch (IOException e) {
-			e.printStackTrace();
+			// NOPE
 		}
 	}
 
 	/**
-	 * Write the response to client
-	 * 
-	 * @param channel
-	 *            the {@code AsynchronousSocketChannel} channel to which write
+	 * @param attachment
 	 * @throws Exception
 	 */
-	protected void writeResponse(AsynchronousSocketChannel channel) throws Exception {
-		if (this.writeBuffers == null) {
-			initWriteBuffers();
-		}
-		// Write the file content to the channel
-		write(channel, this.writeBuffers);
+	@SuppressWarnings("unchecked")
+	public void writeResponse(Object[] attachment) {
+
+		// Retrieve the channel
+		AsynchronousSocketChannel channel = (AsynchronousSocketChannel) attachment[Constants.CHANNEL_POS];
+		// Retrieve the completion handler
+		CompletionHandler<Long, Object[]> writeHandler = (CompletionHandler<Long, Object[]>) attachment[Constants.WRITE_HANDLER_POS];
+		// Retrieve the buffers to write
+		ByteBuffer buffers[] = (ByteBuffer[]) attachment[Constants.WRITE_BUFFERS_POS];
+		// Flip all buffers
+		flipAll(buffers);
+		// Write response to client
+		channel.write(buffers, 0, buffers.length, Constants.DEFAULT_TIMEOUT,
+				Constants.DEFAULT_TIME_UNIT, attachment, writeHandler);
+
 	}
 
 	/**
@@ -132,100 +129,10 @@ class ReadCompletionHandler implements CompletionHandler<Integer, AsynchronousSo
 	 */
 	protected static void flipAll(ByteBuffer[] buffers) {
 		for (ByteBuffer bb : buffers) {
-			bb.flip();
-		}
-	}
-
-	/**
-	 * Read the file from HD and initialize the write byte buffers array.
-	 * 
-	 * @throws IOException
-	 */
-	private void initWriteBuffers() throws IOException {
-
-		File file = new File("data" + File.separatorChar + "file32k.txt");
-		try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-			FileChannel fileChannel = raf.getChannel();
-
-			fileLength = fileChannel.size() + Nio2Utils.CRLF.getBytes().length;
-			double tmp = (double) fileLength / Nio2Utils.WRITE_BUFFER_SIZE;
-			int length = (int) Math.ceil(tmp);
-			writeBuffers = new ByteBuffer[length];
-
-			for (int i = 0; i < writeBuffers.length - 1; i++) {
-				writeBuffers[i] = ByteBuffer.allocate(Nio2Utils.WRITE_BUFFER_SIZE);
+			if (bb.position() > 0) {
+				bb.flip();
 			}
-
-			int temp = (int) (fileLength % Nio2Utils.WRITE_BUFFER_SIZE);
-			writeBuffers[writeBuffers.length - 1] = ByteBuffer.allocateDirect(temp);
-			// Read the whole file in one pass
-			fileChannel.read(writeBuffers);
-		}
-		// Put the <i>CRLF</i> chars at the end of the last byte buffer to mark
-		// the end of data
-		writeBuffers[writeBuffers.length - 1].put(Nio2Utils.CRLF.getBytes());
-	}
-
-	/**
-	 * 
-	 * @param channel
-	 * @param buffers
-	 * @param length
-	 * @throws Exception
-	 */
-	protected void write(final AsynchronousSocketChannel channel, final ByteBuffer[] buffers,
-			final long total) throws Exception {
-
-		// Flip all the write byte buffers
-		flipAll(buffers);
-		// Write response to client
-		channel.write(buffers, 0, buffers.length, Nio2Utils.TIMEOUT, Nio2Utils.TIME_UNIT, total,
-				new CompletionHandler<Long, Long>() {
-					private int offset = 0;
-					private long written = 0;
-
-					@Override
-					public void completed(Long nBytes, Long total) {
-						System.out.println("Written = " + nBytes+" of " + total);
-						written += nBytes;
-						if (written < total) {
-							offset = (int) (written / buffers[0].capacity());
-							channel.write(buffers, offset, buffers.length - offset,
-									Nio2Utils.TIMEOUT, Nio2Utils.TIME_UNIT, total, this);
-						}
-					}
-
-					@Override
-					public void failed(Throwable exc, Long attachment) {
-						exc.printStackTrace();
-					}
-				});
-	}
-
-	/**
-	 * 
-	 * @param channel
-	 * @param buffers
-	 * @throws Exception
-	 */
-	protected void write(final AsynchronousSocketChannel channel, final ByteBuffer[] buffers)
-			throws Exception {
-		for (ByteBuffer buffer : buffers) {
-			write(channel, buffer);
 		}
 	}
 
-	/**
-	 * Write the byte buffer to the specified channel
-	 * 
-	 * @param channel
-	 *            the {@code AsynchronousSocketChannel} channel
-	 * @param byteBuffer
-	 *            the data that will be written to the channel
-	 * @throws IOException
-	 */
-	protected int write(AsynchronousSocketChannel channel, ByteBuffer byteBuffer) throws Exception {
-		byteBuffer.flip();
-		return channel.write(byteBuffer).get();
-	}
 }

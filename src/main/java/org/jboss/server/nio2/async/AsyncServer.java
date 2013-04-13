@@ -32,8 +32,9 @@ import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.CompletionHandler;
 
+import org.jboss.server.common.Constants;
+import org.jboss.server.common.FileLoader;
 import org.jboss.server.nio2.NioServer;
-import org.jboss.server.nio2.common.Nio2Utils;
 
 /**
  * {@code NioAsyncServer}
@@ -61,61 +62,84 @@ public class AsyncServer extends NioServer {
 	 */
 	public void processChannel(final AsynchronousSocketChannel channel) throws Exception {
 
-		channel.setOption(StandardSocketOptions.SO_SNDBUF, Nio2Utils.SO_SNDBUF);
+		channel.setOption(StandardSocketOptions.SO_SNDBUF, Constants.DEFAULT_SO_SNDBUF);
 		final String sessionId = generateSessionId();
-		final ByteBuffer buffer = ByteBuffer.allocate(512);
-		channel.read(buffer, channel, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+		final ByteBuffer buffer = ByteBuffer.allocateDirect(512);
+		final ByteBuffer writeBuffers[] = FileLoader.cloneData();
+		final long fileLength = FileLoader.getFileLength();
+		final CompletionHandler<Integer, Object[]> readHandler = new ReadCompletionHandler();
+		final CompletionHandler<Long, Object[]> writeHandler = new WriteCompletionHandler();
+
+		// Put params in the Map
+
+		final Object array[] = new Object[10];
+		array[Constants.CHANNEL_POS] = channel;
+		array[Constants.READ_BUFFER_POS] = buffer;
+		array[Constants.WRITE_BUFFERS_POS] = writeBuffers;
+		array[Constants.FILE_LENGTH_POS] = fileLength;
+		array[Constants.SESSION_ID_POS] = sessionId;
+		array[Constants.READ_HANDLER_POS] = readHandler;
+		array[Constants.WRITE_HANDLER_POS] = writeHandler;
+
+		// Perform an asynchronous read operation
+		channel.read(buffer, array, new CompletionHandler<Integer, Object[]>() {
 
 			@Override
-			public void completed(Integer nBytes, AsynchronousSocketChannel attachment) {
+			public void completed(Integer nBytes, Object[] attachment) {
 				if (nBytes < 0) {
 					failed(new ClosedChannelException(), attachment);
 					return;
 				}
 				if (nBytes > 0) {
+					ByteBuffer buff = (ByteBuffer) array[Constants.READ_BUFFER_POS];
+					buff.flip();
 					byte bytes[] = new byte[nBytes];
-					buffer.get(bytes);
-					System.out.println("[" + sessionId + "] " + new String(bytes).trim());
-					String response = "jSessionId: " + sessionId + CRLF;
+					buff.get(bytes).clear();
+					String response = "jSessionId: " + attachment[Constants.SESSION_ID_POS]
+							+ Constants.CRLF;
 					// write initialization response to client
-					buffer.clear();
-					buffer.put(response.getBytes()).flip();
-					attachment.write(buffer, attachment,
-							new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+					buff.put(response.getBytes()).flip();
+					AsynchronousSocketChannel ch = (AsynchronousSocketChannel) attachment[Constants.CHANNEL_POS];
+					ch.write(buff, attachment, new CompletionHandler<Integer, Object[]>() {
 
-								@Override
-								public void completed(Integer nBytes,
-										AsynchronousSocketChannel attachment) {
-									if (nBytes < 0) {
-										failed(new ClosedChannelException(), attachment);
-										return;
-									}
-									if (nBytes > 0) {
-										channel.read(buffer, Nio2Utils.TIMEOUT,
-												Nio2Utils.TIME_UNIT, channel,
-												new ReadCompletionHandler(sessionId, buffer));
-									}
+						@Override
+						public void completed(Integer nBytes, Object[] attachment) {
+							//System.out.println("Number of bytes written to client -> " + nBytes);
+							if (nBytes < 0) {
+								failed(new ClosedChannelException(), attachment);
+							} else if (nBytes > 0) {
+								AsynchronousSocketChannel channel = (AsynchronousSocketChannel) attachment[Constants.CHANNEL_POS];
+								ByteBuffer bb = (ByteBuffer) attachment[Constants.READ_BUFFER_POS];
+								if (bb.hasRemaining()) {
+									channel.write(bb, attachment, this);
+								} else {
+									@SuppressWarnings("unchecked")
+									CompletionHandler<Integer, Object[]> readHandler = (CompletionHandler<Integer, Object[]>) attachment[Constants.READ_HANDLER_POS];
+									//System.out.println("End of Session Initialization, Waiting for client requests");
+									channel.read(bb, attachment, readHandler);
 								}
+							}
+						}
 
-								@Override
-								public void failed(Throwable exc,
-										AsynchronousSocketChannel attachment) {
-									exc.printStackTrace();
-									try {
-										attachment.close();
-									} catch (IOException e) {
-										// NOPE
-									}
-								}
-							});
+						@Override
+						public void failed(Throwable exc, Object[] attachment) {
+							exc.printStackTrace();
+							try {
+								((AsynchronousSocketChannel) attachment[Constants.CHANNEL_POS])
+										.close();
+							} catch (IOException e) {
+								// NOPE
+							}
+						}
+					});
 				}
 			}
 
 			@Override
-			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-				exc.printStackTrace();
+			public void failed(Throwable exc, Object[] attachment) {
+				//exc.printStackTrace();
 				try {
-					attachment.close();
+					((AsynchronousSocketChannel) attachment[Constants.CHANNEL_POS]).close();
 				} catch (IOException e) {
 					// NOPE
 				}

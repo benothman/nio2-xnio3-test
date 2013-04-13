@@ -28,10 +28,8 @@ package org.jboss.server.nio2.sync;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousSocketChannel;
-import java.util.concurrent.ExecutionException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
+import org.jboss.logging.Logger;
 import org.jboss.server.common.ClientManager;
 
 /**
@@ -43,7 +41,7 @@ import org.jboss.server.common.ClientManager;
  */
 public class Nio2ClientManager extends ClientManager<AsynchronousSocketChannel> {
 
-	private static final Logger logger = Logger.getLogger(Nio2ClientManager.class.getName());
+	private static final Logger logger = Logger.getLogger(Nio2ClientManager.class);
 
 	/**
 	 * Create a new instance of {@code ClientManager}
@@ -66,33 +64,28 @@ public class Nio2ClientManager extends ClientManager<AsynchronousSocketChannel> 
 		}
 		try {
 			// Initialization of the communication
-			byte bytes[];
+			byte bytes[] = new byte[this.readBuffer.capacity()];
 			do {
 				this.readBuffer.clear();
 				int n = channel.read(this.readBuffer).get();
 				if (n < 0) {
-					this.close();
+					break;
 				}
 
 				if (n > 0) {
 					this.readBuffer.flip();
-					bytes = new byte[n];
-					this.readBuffer.get(bytes);
-					try {
-						// write response to client
-						writeResponse(channel);
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
+					this.readBuffer.get(bytes, 0, n);
+					// write response to client
+					writeResponse(channel);
 				}
 			} while (channel.isOpen());
-
-		} catch (InterruptedException | ExecutionException exp) {
-			logger.log(Level.SEVERE, "ERROR from client side");
+		} catch (Exception exp) {
+			logger.errorv("ERROR: from client side -> {0}", exp);
+			exp.printStackTrace();
 		} finally {
 			this.close();
 		}
-		logger.log(Level.INFO, "Client Manager shutdown");
+		// logger.info("Client Manager shutdown");
 	}
 
 	/*
@@ -113,7 +106,10 @@ public class Nio2ClientManager extends ClientManager<AsynchronousSocketChannel> 
 
 	/*
 	 * (non-Javadoc)
-	 * @see org.jboss.server.common.ClientManager#write(java.nio.channels.Channel, java.nio.ByteBuffer)
+	 * 
+	 * @see
+	 * org.jboss.server.common.ClientManager#write(java.nio.channels.Channel,
+	 * java.nio.ByteBuffer)
 	 */
 	@Override
 	protected void write(AsynchronousSocketChannel channel, ByteBuffer buffer) throws Exception {
@@ -122,8 +118,7 @@ public class Nio2ClientManager extends ClientManager<AsynchronousSocketChannel> 
 		}
 
 		while (buffer.hasRemaining()) {
-			int x = channel.write(buffer).get();
-			if (x < 0) {
+			if (channel.write(buffer).get() < 0) {
 				throw new IOException();
 			}
 		}

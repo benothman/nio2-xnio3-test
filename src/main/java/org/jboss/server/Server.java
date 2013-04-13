@@ -27,6 +27,7 @@
 package org.jboss.server;
 
 import org.jboss.logging.Logger;
+import org.jboss.server.common.Constants;
 
 /**
  * {@code Server}
@@ -36,20 +37,18 @@ import org.jboss.logging.Logger;
  * @author <a href="mailto:nbenothm@redhat.com">Nabil Benothman</a>
  */
 public abstract class Server {
-
+	
 	/**
 	 *
 	 */
-	public static final int DEFAULT_SERVER_PORT = 8080;
-	public static final Logger LOG = Logger.getLogger(Server.class);
-
+	public static final Logger	LOG	= Logger.getLogger(Server.class);
+	
 	/**
 	 * Create a new instance of {@code Server}
 	 */
 	public Server() {
-		// TODO Auto-generated constructor stub
 	}
-
+	
 	/**
 	 * 
 	 * @param args
@@ -68,17 +67,22 @@ public abstract class Server {
 			System.out.println();
 			System.exit(-1);
 		}
-
-		int port = DEFAULT_SERVER_PORT;
+		
+		int port = Constants.DEFAULT_SERVER_PORT;
 		if (args.length >= 3) {
 			try {
 				port = Integer.valueOf(args[2]);
+				if (port <= 1024) {
+					LOG.error("Invalid port number. The port number must be between 1025 and 65535");
+					port = Constants.DEFAULT_SERVER_PORT;
+					LOG.infov("Adjusting port number to the default server port {0}", port);
+				}
 			} catch (Throwable e) {
 				LOG.errorv("Invalid port number format: {0}", args[2]);
 				LOG.infov("Using the default port number {0}", port);
 			}
 		}
-
+		
 		switch (args[0]) {
 			case "nio2":
 				org.jboss.server.nio2.MainServer.run(args[1], port);
@@ -87,10 +91,10 @@ public abstract class Server {
 				org.jboss.server.xnio3.MainServer.run(args[1], port);
 				break;
 			default:
-				System.err.println("ERROR: unknown server type \"" + args[0] + "\"");
-				System.err.println("Allowed values: \"xnio3\" and \"nio2\"");
+				LOG.errorv("Unknown server type \"{0}\"", args[0]);
+				LOG.error("Allowed values: \"xnio3\" and \"nio2\"");
 				break;
 		}
 	}
-
+	
 }

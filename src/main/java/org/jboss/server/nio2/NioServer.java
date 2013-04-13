@@ -34,6 +34,7 @@ import java.util.concurrent.Future;
 
 import org.jboss.logging.Logger;
 import org.jboss.server.common.AbstractServer;
+import org.jboss.server.common.Constants;
 
 /**
  * {@code NioServer}
@@ -109,14 +110,15 @@ public abstract class NioServer extends AbstractServer {
 		int nBytes = future.get();
 		buffer.flip();
 		byte bytes[] = new byte[nBytes];
-		buffer.get(bytes);
+		buffer.get(bytes).clear();
 		System.out.println("[" + sessionId + "] " + new String(bytes).trim());
-		String response = "jSessionId: " + sessionId + CRLF;
+		String response = "jSessionId: " + sessionId + Constants.CRLF;
 		// write initialization response to client
-		buffer.clear();
 		buffer.put(response.getBytes()).flip();
-		channel.write(buffer).get();
-		buffer.clear();
+		System.out.println("buffer.position(): " + buffer.position());
+		System.out.println("buffer.limit(): " + buffer.limit());
+		int x = channel.write(buffer).get();
+		System.out.println("Number of bytes written -> " + x);
 	}
 
 }
